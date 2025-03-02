@@ -5,6 +5,7 @@ abstract final class BarrierPath {
   static ui.Path make({
     required ui.Rect screen,
     required ui.Rect target,
+    required double targetBorderRadius,
     required double progress,
   }) {
     final path = ui.Path();
@@ -13,6 +14,7 @@ abstract final class BarrierPath {
       barrier,
       screen: screen,
       target: target,
+      targetBorderRadius: targetBorderRadius,
       progress: progress,
     );
 
@@ -37,6 +39,7 @@ abstract final class BarrierPath {
       ui.Path path, {
         required ui.Rect screen,
         required ui.Rect target,
+        required double targetBorderRadius,
         required double progress,
       }) {
     path = ui.Path.from(path);
@@ -47,19 +50,28 @@ abstract final class BarrierPath {
     }
 
     final maxSize = math.max(screen.width, screen.height);
-    final targetRRect = ui.RRect.fromRectAndRadius(
-      ui.Rect.fromCenter(
-        center: target.center,
-        width: maxSize * (1 - progress) + target.width,
-        height: maxSize * (1 - progress) + target.height,
-      ),
-      ui.Radius.circular(16),
+    final targetPath = ui.Path();
+    final targetRect = ui.Rect.fromCenter(
+      center: target.center,
+      width: maxSize * (1 - progress) + target.width,
+      height: maxSize * (1 - progress) + target.height,
     );
+
+    if (targetBorderRadius > 0) {
+      final targetRRect = ui.RRect.fromRectAndRadius(
+        targetRect,
+        ui.Radius.circular(targetBorderRadius),
+      );
+
+      targetPath.addRRect(targetRRect);
+    } else {
+      targetPath.addRect(targetRect);
+    }
 
     return ui.Path.combine(
       ui.PathOperation.difference,
       path,
-      ui.Path()..addRRect(targetRRect),
+      targetPath,
     );
   }
 }

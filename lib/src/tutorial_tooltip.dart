@@ -7,14 +7,34 @@ import 'path/barrier_path.dart';
 import 'util/text_position_helper.dart';
 
 class TutorialTooltipController {
-  _TutorialTargetState? _attachTarget;
+  final Map<Object, _TutorialTargetState> _attachTargets = {};
+  _TutorialTargetState? _focusedTarget;
 
-  void show() => _attachTarget?._showOverlay();
+  Object? get focusedTutorial => _focusedTarget?.widget.id;
 
-  void hide() => _attachTarget?._closeOverlay();
+  void focus(Object id) {
+    if (_focusedTarget case final target?) {
+      target._closeTutorial();
+      _focusedTarget = null;
+    }
+
+    if (_attachTargets[id] case final target?) {
+      _focusedTarget = target;
+      target._showTutorial();
+    }
+  }
+
+  void unfocus() {
+    if (_focusedTarget case final target?) {
+      target._closeTutorial();
+      _focusedTarget = null;
+    }
+  }
 }
 
 class TutorialTarget extends StatefulWidget {
+  final Object id;
+
   final TutorialTooltipController controller;
   final Widget child;
 
@@ -25,22 +45,30 @@ class TutorialTarget extends StatefulWidget {
   final Color arrowColor;
   final Duration openingDuration;
 
-  final double padding;
+  final double targetPadding;
+  final double targetBorderRadius;
 
-  final VoidCallback? onBarrierTap;
+  final VoidCallback? onTap;
   final HitTestBehavior targetHitBehavior;
 
+  final bool canPop;
+  final PopInvokedWithResultCallback<void>? onPopInvokedWithResult;
+
   const TutorialTarget({
+    required this.id,
     required this.controller,
     required this.child,
     required this.text,
+    this.textDirection,
     this.barrierColor = Colors.black54,
     this.arrowColor = Colors.white,
     this.openingDuration = const Duration(milliseconds: 200),
-    this.padding = 32,
+    this.targetPadding = 32,
+    this.targetBorderRadius = 16,
+    this.onTap,
     this.targetHitBehavior = HitTestBehavior.opaque,
-    this.onBarrierTap,
-    this.textDirection,
+    this.canPop = true,
+    this.onPopInvokedWithResult,
     super.key,
   });
 
@@ -62,21 +90,38 @@ class _TutorialTargetState extends State<TutorialTarget>
   void initState() {
     super.initState();
 
-    _recognizer.onTap = widget.onBarrierTap ?? _closeOverlay;
-    widget.controller._attachTarget = this;
+    _recognizer.onTap = widget.onTap ?? _closeTutorial;
+    widget.controller._attachTargets[widget.id] = this;
+  }
+
+  @override
+  void didUpdateWidget(TutorialTarget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.controller != oldWidget.controller) {
+      oldWidget.controller._attachTargets.remove(widget.id);
+      widget.controller._attachTargets[widget.id] = this;
+
+      if (oldWidget.controller._focusedTarget == this) {
+        widget.controller._focusedTarget = this;
+      }
+    }
   }
 
   @override
   void dispose() {
-    widget.controller._attachTarget = null;
+    widget.controller._attachTargets.remove(widget.id);
+
+    _overlayEntry?.remove();
+    _overlayEntry?.dispose();
+
     _recognizer.dispose();
     _animationController.dispose();
-    _closeOverlay();
 
     super.dispose();
   }
 
-  void _showOverlay() {
+  void _showTutorial() {
     final overlay = Overlay.of(context, debugRequiredFor: widget);
     final box = context.findRenderObject()! as RenderBox;
 
@@ -85,23 +130,28 @@ class _TutorialTargetState extends State<TutorialTarget>
         final targetSize = box.size;
 
         return Positioned.fill(
-          child: _Tutorial(
-            text: widget.text,
-            barrierColor: widget.barrierColor,
-            arrowColor: widget.arrowColor,
-            target: Rect.fromCenter(
-              center: box.localToGlobal(
-                targetSize.center(Offset.zero),
-                ancestor: overlay.context.findRenderObject(),
+          child: PopScope(
+            canPop: widget.canPop,
+            onPopInvokedWithResult: widget.onPopInvokedWithResult,
+            child: _Tutorial(
+              text: widget.text,
+              barrierColor: widget.barrierColor,
+              arrowColor: widget.arrowColor,
+              target: Rect.fromCenter(
+                center: box.localToGlobal(
+                  targetSize.center(Offset.zero),
+                  ancestor: overlay.context.findRenderObject(),
+                ),
+                width: targetSize.width,
+                height: targetSize.height,
               ),
-              width: targetSize.width,
-              height: targetSize.height,
+              textDirection: widget.textDirection,
+              targetPadding: widget.targetPadding,
+              targetBorderRadius: widget.targetBorderRadius,
+              behavior: widget.targetHitBehavior,
+              onPointerDown: _recognizer.addPointer,
+              progress: _animationController.view,
             ),
-            textDirection: widget.textDirection,
-            padding: widget.padding,
-            behavior: widget.targetHitBehavior,
-            onPointerDown: _recognizer.addPointer,
-            progress: _animationController.view,
           ),
         );
       },
@@ -111,7 +161,7 @@ class _TutorialTargetState extends State<TutorialTarget>
     _animationController.forward();
   }
 
-  void _closeOverlay() {
+  void _closeTutorial() {
     _overlayEntry?.remove();
     _overlayEntry?.dispose();
     _overlayEntry = null;
@@ -142,7 +192,8 @@ class _Tutorial extends LeafRenderObjectWidget {
   final Color arrowColor;
 
   final Rect target;
-  final double padding;
+  final double targetPadding;
+  final double targetBorderRadius;
 
   final HitTestBehavior behavior;
   final PointerDownEventListener? onPointerDown;
@@ -154,18 +205,20 @@ class _Tutorial extends LeafRenderObjectWidget {
     required this.barrierColor,
     required this.arrowColor,
     required this.target,
+    required this.targetPadding,
+    required this.targetBorderRadius,
     required this.behavior,
-    required this.padding,
     this.textDirection,
     this.onPointerDown,
     this.progress,
   });
 
-  Rect get _resultTarget => Rect.fromCenter(
-    center: target.center,
-    width: target.width + padding,
-    height: target.height + padding,
-  );
+  Rect get _resultTarget =>
+      Rect.fromCenter(
+        center: target.center,
+        width: target.width + targetPadding,
+        height: target.height + targetPadding,
+      );
 
   @override
   _RenderTutorial createRenderObject(BuildContext context) {
@@ -175,6 +228,7 @@ class _Tutorial extends LeafRenderObjectWidget {
       barrierColor: barrierColor,
       arrowColor: arrowColor,
       target: _resultTarget,
+      targetBorderRadius: targetBorderRadius,
       behavior: behavior,
       onPointerDown: onPointerDown,
       progress: progress,
@@ -182,16 +236,15 @@ class _Tutorial extends LeafRenderObjectWidget {
   }
 
   @override
-  void updateRenderObject(
-      BuildContext context,
-      _RenderTutorial renderObject,
-      ) {
+  void updateRenderObject(BuildContext context,
+      _RenderTutorial renderObject,) {
     renderObject
       ..text = text
       ..textDirection = textDirection ?? Directionality.of(context)
       ..barrierColor = barrierColor
       ..arrowColor = arrowColor
       ..target = _resultTarget
+      ..targetBorderRadius = targetBorderRadius
       ..behavior = behavior
       ..onPointerDown = onPointerDown
       ..progress = progress;
@@ -205,6 +258,7 @@ class _RenderTutorial extends RenderBox {
   TextPainter _textPainter;
 
   Rect _target;
+  double _targetBorderRadius;
 
   HitTestBehavior behavior;
   PointerDownEventListener? onPointerDown;
@@ -220,16 +274,21 @@ class _RenderTutorial extends RenderBox {
     required Color barrierColor,
     required Color arrowColor,
     required Rect target,
+    required double targetBorderRadius,
     required this.behavior,
     this.onPointerDown,
     Animation<double>? progress,
-  })  : _target = target,
+  })
+      : _target = target,
+        _targetBorderRadius = targetBorderRadius,
         _progress = progress,
         _textPainter = TextPainter(
           text: text,
           textDirection: textDirection,
-        )..layout(),
-        _barrierPaint = Paint()..color = barrierColor,
+        )
+          ..layout(),
+        _barrierPaint = Paint()
+          ..color = barrierColor,
         _arrowPaint = Paint()
           ..color = arrowColor
           ..strokeWidth = 4
@@ -241,7 +300,8 @@ class _RenderTutorial extends RenderBox {
       _textPainter = TextPainter(
         text: value,
         textDirection: _textPainter.textDirection,
-      )..layout();
+      )
+        ..layout();
       markNeedsPaint();
     }
   }
@@ -251,7 +311,8 @@ class _RenderTutorial extends RenderBox {
       _textPainter = TextPainter(
         text: _textPainter.text,
         textDirection: value,
-      )..layout();
+      )
+        ..layout();
       markNeedsPaint();
     }
   }
@@ -275,6 +336,15 @@ class _RenderTutorial extends RenderBox {
   set target(Rect value) {
     if (value != _target) {
       _target = value;
+      markNeedsPaint();
+    }
+  }
+
+  double get targetBorderRadius => _targetBorderRadius;
+
+  set targetBorderRadius(double value) {
+    if (value != _targetBorderRadius) {
+      _targetBorderRadius = value;
       markNeedsPaint();
     }
   }
@@ -343,6 +413,7 @@ class _RenderTutorial extends RenderBox {
     final barrier = BarrierPath.make(
       screen: screen,
       target: target,
+      targetBorderRadius: targetBorderRadius,
       progress: progress,
     );
 
@@ -402,10 +473,8 @@ class _TutorialTarget extends SingleChildRenderObjectWidget {
   }
 
   @override
-  void updateRenderObject(
-      BuildContext context,
-      _RenderTutorialTarget renderObject,
-      ) {
+  void updateRenderObject(BuildContext context,
+      _RenderTutorialTarget renderObject,) {
     renderObject.onRepaint = onRepaint;
   }
 }
