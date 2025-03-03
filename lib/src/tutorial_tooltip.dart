@@ -172,7 +172,7 @@ class _TutorialTargetState extends State<TutorialTarget>
   @override
   Widget build(BuildContext context) {
     return _TutorialTarget(
-      onRepaint: () {
+      onRepaintCallback: () {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _overlayEntry?.markNeedsBuild();
         });
@@ -213,8 +213,7 @@ class _Tutorial extends LeafRenderObjectWidget {
     this.progress,
   });
 
-  Rect get _resultTarget =>
-      Rect.fromCenter(
+  Rect get _resultTarget => Rect.fromCenter(
         center: target.center,
         width: target.width + targetPadding,
         height: target.height + targetPadding,
@@ -236,8 +235,10 @@ class _Tutorial extends LeafRenderObjectWidget {
   }
 
   @override
-  void updateRenderObject(BuildContext context,
-      _RenderTutorial renderObject,) {
+  void updateRenderObject(
+    BuildContext context,
+    _RenderTutorial renderObject,
+  ) {
     renderObject
       ..text = text
       ..textDirection = textDirection ?? Directionality.of(context)
@@ -278,17 +279,14 @@ class _RenderTutorial extends RenderBox {
     required this.behavior,
     this.onPointerDown,
     Animation<double>? progress,
-  })
-      : _target = target,
+  })  : _target = target,
         _targetBorderRadius = targetBorderRadius,
         _progress = progress,
         _textPainter = TextPainter(
           text: text,
           textDirection: textDirection,
-        )
-          ..layout(),
-        _barrierPaint = Paint()
-          ..color = barrierColor,
+        )..layout(),
+        _barrierPaint = Paint()..color = barrierColor,
         _arrowPaint = Paint()
           ..color = arrowColor
           ..strokeWidth = 4
@@ -300,8 +298,7 @@ class _RenderTutorial extends RenderBox {
       _textPainter = TextPainter(
         text: value,
         textDirection: _textPainter.textDirection,
-      )
-        ..layout();
+      )..layout();
       markNeedsPaint();
     }
   }
@@ -311,8 +308,7 @@ class _RenderTutorial extends RenderBox {
       _textPainter = TextPainter(
         text: _textPainter.text,
         textDirection: value,
-      )
-        ..layout();
+      )..layout();
       markNeedsPaint();
     }
   }
@@ -458,38 +454,48 @@ class _TutorialElement extends LeafRenderObjectElement {
 }
 
 class _TutorialTarget extends SingleChildRenderObjectWidget {
-  final VoidCallback onRepaint;
+  final VoidCallback onRepaintCallback;
 
   const _TutorialTarget({
-    required this.onRepaint,
+    required this.onRepaintCallback,
     required super.child,
   });
 
   @override
   RenderObject createRenderObject(BuildContext context) {
     return _RenderTutorialTarget(
-      onRepaint: onRepaint,
+      onRepaintCallback: onRepaintCallback,
     );
   }
 
   @override
-  void updateRenderObject(BuildContext context,
-      _RenderTutorialTarget renderObject,) {
-    renderObject.onRepaint = onRepaint;
+  void updateRenderObject(
+    BuildContext context,
+    _RenderTutorialTarget renderObject,
+  ) {
+    renderObject.onRepaintCallback = onRepaintCallback;
   }
 }
 
 class _RenderTutorialTarget extends RenderProxyBox {
-  VoidCallback onRepaint;
+  VoidCallback onRepaintCallback;
+
+  Size? _oldSize;
+  Offset? _oldOffset;
 
   _RenderTutorialTarget({
-    required this.onRepaint,
+    required this.onRepaintCallback,
   });
 
   @override
   void paint(PaintingContext context, Offset offset) {
     super.paint(context, offset);
 
-    onRepaint();
+    if (_oldSize != size || _oldOffset != offset) {
+      onRepaintCallback();
+
+      _oldSize = size;
+      _oldOffset = offset;
+    }
   }
 }
